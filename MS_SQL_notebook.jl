@@ -5,7 +5,7 @@ using Markdown
 using InteractiveUtils
 
 # ╔═╡ 0d112a9e-15f0-4b9d-a323-445b7eaf0ef6
-using ODBC, DBInterface, DataFrames, JSON
+using ODBC, DBInterface, DataFrames, JSON, CoinbaseProExchange
 
 # ╔═╡ 5c617b7e-12d5-11ee-2c35-1fed12f104a4
 md"
@@ -26,10 +26,10 @@ md"
 "
 
 # ╔═╡ 55b5df7d-059f-40fe-8698-9bf8a0e38177
-ODBC.adddriver("ODBC Driver 18 for SQL Server", "/opt/microsoft/msodbcsql18/lib64/libmsodbcsql-18.2.so.2.1")
+#ODBC.adddriver("ODBC Driver 18 for SQL Server", "/opt/microsoft/msodbcsql18/lib64/libmsodbcsql-18.2.so.2.1")
 
 # ╔═╡ 770a02bc-f496-493c-ac1f-52d98e1bea86
-ODBC.removedriver("msodbcsql18")
+#ODBC.removedriver("msodbcsql18")
 
 # ╔═╡ b8a615a9-ee9f-4df7-8856-0f94e9254096
 md"
@@ -43,13 +43,18 @@ key = JSON.parsefile("/home/vikas/Documents/MS_SQL_key.json");
 pass = key["password"];
 
 # ╔═╡ 413e5c2d-f697-49f7-a1ea-e481c11905eb
-begin
-	conn = ODBC.Connection("Driver={ODBC Driver 17 for SQL Server};
+conn = ODBC.Connection("Driver={ODBC Driver 17 for SQL Server};
 	                        SERVER=192.168.2.8,1433;
 	                        DATABASE=TestDB;
 	                        UID=SA;
 	                        PWD=$(pass)")
-end
+
+# ╔═╡ c3d7f254-efae-45b3-9eae-ae89d9e64fc6
+conn_master = ODBC.Connection("Driver={ODBC Driver 17 for SQL Server};
+	                           SERVER=192.168.2.8,1433;
+	                           DATABASE=master;
+	                           UID=SA;
+	                           PWD=$(pass)")
 
 # ╔═╡ 0c328dbd-df17-453c-961a-c5ec446d34c6
 md"
@@ -60,7 +65,186 @@ md"
 df_inventory = DBInterface.execute(conn, "SELECT * FROM Inventory") |> DataFrame
 
 # ╔═╡ 21334d46-f828-48ec-84b0-a81133fb55a8
-df_origin = DBInterface.execute(conn, "SELECT * FROM Origin WHERE country = 'India'") |> DataFrame
+df_origin = DBInterface.execute(conn, "SELECT * FROM Origin") |> DataFrame
+
+# ╔═╡ ec4fb85d-8fb1-47df-b811-966ceeba0b25
+#stmt = DBInterface.prepare(conn, "INSERT INTO Origin VALUES(?, ?, ?)")
+
+# ╔═╡ 102dbb27-ee69-42ca-8549-714463d10597
+#DBInterface.executemany(stmt, ([5, 6], ["watermelon", "lichi"], ["India", "China"]))
+
+# ╔═╡ 7f58ae46-2531-41ba-a43b-456b93bb6c9e
+md"
+## Interacting with SQL Server
+"
+
+# ╔═╡ 5c09ff51-6046-4e1d-913f-c27364ced969
+md"
+#### List all existing databases
+"
+
+# ╔═╡ b2616e09-4396-491f-a37f-a6af4a79d4eb
+list_db(conn) = DBInterface.execute(conn, 
+	                        "SELECT name FROM master.dbo.sysdatabases") |> DataFrame
+
+# ╔═╡ 1c8c6d32-e960-40d4-ba5b-447e1c6fa998
+list_db(conn_master)
+
+# ╔═╡ b5cb39cb-ec94-4349-8bc2-ff388fc623e5
+md"
+#### Create a new database
+"
+
+# ╔═╡ 4a790301-0db2-4370-85f1-d6eff91047b9
+"""
+    create_db(conn, db_name::String)
+"""
+function create_db(conn, db_name::String)
+
+	df_db = list_db(conn)
+
+	if db_name ∉ df_db.name
+		try
+			DBInterface.execute(conn, "CREATE DATABASE $(db_name)")
+			@info "Created a new database $(db_name)"
+		catch e
+			error("Unable to create a new database $(db_name)")
+		end		
+	else
+		@info "$(db_name) already exists!"
+	end	
+
+	return nothing
+
+end
+
+# ╔═╡ 543e7024-4a8e-49d3-a568-b820c1aa98e4
+create_db(conn_master, "TradesDB")
+
+# ╔═╡ 34800bee-346b-49df-81fa-e30e763ce537
+md"
+#### Connect to a new database
+"
+
+# ╔═╡ 4587b7e0-7509-4534-9a05-b69dee4fd2d9
+function connect_db(db_name::String)
+	conn_db = ODBC.Connection("Driver={ODBC Driver 17 for SQL Server};
+	                           SERVER=192.168.2.8,1433;
+	                           DATABASE=$(db_name);
+	                           UID=SA;
+	                           PWD=$(pass)")
+
+	return conn_db
+end
+
+# ╔═╡ 8e81d52e-d4c8-439a-8f82-b79d9a08e54b
+md"
+#### Create a new table
+"
+
+# ╔═╡ 078ae9f1-f29c-4171-8ec7-daacab7ef5f8
+function create_trade_table(conn_master, db_name::String, table_name::String)
+
+	create_db(conn_master, db_name)
+
+	conn = connect_db(db_name)
+
+	df_tables = DBInterface.execute(conn, 
+		                    "SELECT * FROM information_schema.tables") |> DataFrame
+
+	if table_name ∉ df_tables[!, :TABLE_NAME]
+		try
+			DBInterface.execute(conn, 
+		                        "CREATE TABLE $table_name (
+								 Id INT IDENTITY,
+                                 Time CHAR(27),
+                                 Price FLOAT,
+                                 Side VARCHAR(4),
+                                 Size FLOAT,
+                                 TradeId INT
+                                 );")
+			
+		catch e
+			error("Unable to create table $table_name")
+		end
+
+	else
+		@info("Table $table_name already exists!")
+	end	
+
+	return conn
+
+end
+
+# ╔═╡ 32e1a386-604a-467c-bec2-5f6bc8a26913
+create_trade_table(conn_master, "TradesDB", "ETH_EUR")
+
+# ╔═╡ fa73f368-c318-4fb5-8a04-5ff4eab2e324
+md"
+#### Add to a new table
+"
+
+# ╔═╡ 3bbcf312-c153-4d40-a99b-b997244402ab
+"""
+    add_to_trade_table(conn_master, db_name::String, table_name::String)
+
+Add latest trades to a table with name `table_name` within database `db_name`. 
+
+# Arguments
+- `conn_master` : Connection to master database on the SQL server. This is always
+                  assumed to be present.
+- `db_name` : Name of the database. A new one is created if it doesn't already exist.
+- `table_name` : Name of the table. In this case, a valid currency pair is needed, 
+                 e.g. "ETH-EUR", "BTC-EUR" etc.
+"""
+function add_to_trade_table(conn_master, db_name::String, table_name::String)
+
+	conn = create_trade_table(conn_master, db_name, table_name)
+
+	trade_pair = split(table_name, "_")
+	trade_pair = join(trade_pair, "-")
+
+	df_trades = show_latest_trades(trade_pair)
+
+	stmt = try
+		 DBInterface.prepare(conn, 
+		                     "INSERT INTO $(table_name) VALUES(?, ?, ?, ?, ?)")
+	catch 
+		error("Unable to prepare statement")
+	end
+
+	try
+		DBInterface.executemany(stmt, 
+		                       (df_trades[!, 1], 
+							    df_trades[!, 2],
+						        df_trades[!, 3],
+						        df_trades[!, 4],
+						        df_trades[!, 5])
+	                            )
+	catch
+		error("Unable to execute multiple statements")
+	finally
+		DBInterface.close!(stmt)
+		DBInterface.close!(conn)		
+	end
+
+	return nothing	
+
+end
+
+# ╔═╡ d2c2eb57-f833-4041-9081-2197d8ef2802
+#df_trades = show_latest_trades("BTC-EUR")
+
+# ╔═╡ aa07c21f-bcf6-4231-8947-819d9d8e2601
+add_to_trade_table(conn_master, "TradesDB", "BTC_EUR")
+
+# ╔═╡ 91a8c494-ec4f-4b6e-a08f-0f1c1ae04a8b
+md"
+#### Clean up table
+"
+
+# ╔═╡ a1e8772c-abb2-490c-92f8-37bc553060d6
+
 
 # ╔═╡ 37cabedf-c062-40fc-bbd9-9a4ed4f460b3
 md"
@@ -68,17 +252,19 @@ md"
 "
 
 # ╔═╡ 42758b31-5a78-433d-8dd8-47bcd6986578
-DBInterface.close!(conn)
+#DBInterface.close!(conn_1)
 
 # ╔═╡ 00000000-0000-0000-0000-000000000001
 PLUTO_PROJECT_TOML_CONTENTS = """
 [deps]
+CoinbaseProExchange = "06c3450d-869c-4596-88b4-6f9fb82f72bd"
 DBInterface = "a10d1c49-ce27-4219-8d33-6db1a4562965"
 DataFrames = "a93c6f00-e57d-5684-b7b6-d8193f3e46c0"
 JSON = "682c06a0-de6a-54ab-a142-c8b1cf79cde6"
 ODBC = "be6f12e9-ca4f-5eb2-a339-a4f995cc0291"
 
 [compat]
+CoinbaseProExchange = "~1.0.0"
 DBInterface = "~2.5.0"
 DataFrames = "~1.5.0"
 JSON = "~0.21.4"
@@ -91,7 +277,7 @@ PLUTO_MANIFEST_TOML_CONTENTS = """
 
 julia_version = "1.9.1"
 manifest_format = "2.0"
-project_hash = "a65b049f3b8fe7f10b796f15a2491c2c43460562"
+project_hash = "335a853748fdf3e1aa4dcd84e6fdc6822cbf7784"
 
 [[deps.ArgTools]]
 uuid = "0dad84c5-d112-42e6-8d28-ef12dabb789f"
@@ -102,6 +288,24 @@ uuid = "56f22d72-fd6d-98f1-02f0-08ddc0907c33"
 
 [[deps.Base64]]
 uuid = "2a0f44e3-6c83-55bd-87e4-b1978d98bd5f"
+
+[[deps.CSV]]
+deps = ["CodecZlib", "Dates", "FilePathsBase", "InlineStrings", "Mmap", "Parsers", "PooledArrays", "SentinelArrays", "Tables", "Unicode", "WeakRefStrings"]
+git-tree-sha1 = "49f14b6c56a2da47608fe30aed711b5882264d7a"
+uuid = "336ed68f-0bac-5ca0-87d4-7b16caf5d00b"
+version = "0.9.11"
+
+[[deps.CodecZlib]]
+deps = ["TranscodingStreams", "Zlib_jll"]
+git-tree-sha1 = "9c209fb7536406834aa938fb149964b985de6c83"
+uuid = "944b1d66-785c-5afd-91f1-9de20f533193"
+version = "0.7.1"
+
+[[deps.CoinbaseProExchange]]
+deps = ["Base64", "CSV", "DataFrames", "Dates", "HTTP", "JSON", "Nettle", "Query", "Statistics"]
+git-tree-sha1 = "decf014e988006a8568476b243c293c9b9311b57"
+uuid = "06c3450d-869c-4596-88b4-6f9fb82f72bd"
+version = "1.0.0"
 
 [[deps.Compat]]
 deps = ["UUIDs"]
@@ -150,6 +354,12 @@ git-tree-sha1 = "bfc1187b79289637fa0ef6d4436ebdfe6905cbd6"
 uuid = "e2d170a0-9d28-54be-80f0-106bbe20a464"
 version = "1.0.0"
 
+[[deps.DataValues]]
+deps = ["DataValueInterfaces", "Dates"]
+git-tree-sha1 = "d88a19299eba280a6d062e135a43f00323ae70bf"
+uuid = "e7dc6d0d-1eca-5fa6-8ad6-5aecde8b7ea5"
+version = "0.4.13"
+
 [[deps.Dates]]
 deps = ["Printf"]
 uuid = "ade2ca70-3891-5945-98fb-dc099432e06a"
@@ -177,6 +387,12 @@ deps = ["ArgTools", "FileWatching", "LibCURL", "NetworkOptions"]
 uuid = "f43a241f-c20a-4ad4-852c-f6b1247861c6"
 version = "1.6.0"
 
+[[deps.FilePathsBase]]
+deps = ["Compat", "Dates", "Mmap", "Printf", "Test", "UUIDs"]
+git-tree-sha1 = "e27c4ebe80e8699540f2d6c805cc12203b614f12"
+uuid = "48062228-2e41-5def-b9a4-89aafe57970f"
+version = "0.9.20"
+
 [[deps.FileWatching]]
 uuid = "7b1f6079-737a-58dc-b8bc-7a2ca5c1b5ee"
 
@@ -189,6 +405,22 @@ version = "0.4.2"
 [[deps.Future]]
 deps = ["Random"]
 uuid = "9fa8497b-333b-5362-9e8d-4d0656e87820"
+
+[[deps.GMP_jll]]
+deps = ["Artifacts", "Libdl"]
+uuid = "781609d7-10c4-51f6-84f2-b8444358ff6d"
+version = "6.2.1+2"
+
+[[deps.HTTP]]
+deps = ["Base64", "Dates", "IniFile", "Logging", "MbedTLS", "NetworkOptions", "Sockets", "URIs"]
+git-tree-sha1 = "0fa77022fe4b511826b39c894c90daf5fce3334a"
+uuid = "cd3eb016-35fb-5094-929b-558a96fad6f3"
+version = "0.9.17"
+
+[[deps.IniFile]]
+git-tree-sha1 = "f550e6e32074c939295eb5ea6de31849ac2c9625"
+uuid = "83e8ac13-25f8-5344-8a64-a9f2b223428f"
+version = "0.5.1"
 
 [[deps.InlineStrings]]
 deps = ["Parsers"]
@@ -209,6 +441,12 @@ version = "1.3.0"
 git-tree-sha1 = "630b497eafcc20001bba38a4651b327dcfc491d2"
 uuid = "92d709cd-6900-40b7-9082-c6be49f344b6"
 version = "0.2.2"
+
+[[deps.IterableTables]]
+deps = ["DataValues", "IteratorInterfaceExtensions", "Requires", "TableTraits", "TableTraitsUtils"]
+git-tree-sha1 = "70300b876b2cebde43ebc0df42bc8c94a144e1b4"
+uuid = "1c8ee90f-4401-5389-894e-7a04a3dc0f4d"
+version = "1.0.0"
 
 [[deps.IteratorInterfaceExtensions]]
 git-tree-sha1 = "a3f24677c21f5bbe9d2a714f95dcd58337fb2856"
@@ -283,9 +521,21 @@ version = "0.3.24"
 [[deps.Logging]]
 uuid = "56ddb016-857b-54e1-b83d-db4d58db5568"
 
+[[deps.MacroTools]]
+deps = ["Markdown", "Random"]
+git-tree-sha1 = "42324d08725e200c23d4dfb549e0d5d89dede2d2"
+uuid = "1914dd2f-81c6-5fcd-8719-6d5c9610ff09"
+version = "0.5.10"
+
 [[deps.Markdown]]
 deps = ["Base64"]
 uuid = "d6f4376e-aef5-505a-96c1-9c027394607a"
+
+[[deps.MbedTLS]]
+deps = ["Dates", "MbedTLS_jll", "MozillaCACerts_jll", "Random", "Sockets"]
+git-tree-sha1 = "03a9b9718f5682ecb107ac9f7308991db4ce395b"
+uuid = "739be429-bea8-5141-9913-cc70e7f3736d"
+version = "1.1.7"
 
 [[deps.MbedTLS_jll]]
 deps = ["Artifacts", "Libdl"]
@@ -304,6 +554,18 @@ uuid = "a63ad114-7e13-5084-954f-fe012c677804"
 [[deps.MozillaCACerts_jll]]
 uuid = "14a3606d-f60d-562e-9121-12d972cd8159"
 version = "2022.10.11"
+
+[[deps.Nettle]]
+deps = ["Libdl", "Nettle_jll"]
+git-tree-sha1 = "f96a7485d2404f90c7c5c417e64d231f8edc5f08"
+uuid = "49dea1ee-f6fa-5aa6-9a11-8816cee7d4b9"
+version = "0.5.2"
+
+[[deps.Nettle_jll]]
+deps = ["Artifacts", "GMP_jll", "JLLWrappers", "Libdl", "Pkg"]
+git-tree-sha1 = "eca63e3847dad608cfa6a3329b95ef674c7160b4"
+uuid = "4c82536e-c426-54e4-b420-14f461c4ed8b"
+version = "3.7.2+0"
 
 [[deps.NetworkOptions]]
 uuid = "ca575930-c2e3-43a9-ace4-1e988b2c1908"
@@ -375,6 +637,18 @@ version = "2.2.4"
 deps = ["Unicode"]
 uuid = "de0858da-6303-5e67-8744-51eddeeeb8d7"
 
+[[deps.Query]]
+deps = ["DataValues", "IterableTables", "MacroTools", "QueryOperators", "Statistics"]
+git-tree-sha1 = "a66aa7ca6f5c29f0e303ccef5c8bd55067df9bbe"
+uuid = "1a8c2f83-1ff3-5112-b086-8aa67b057ba1"
+version = "1.0.0"
+
+[[deps.QueryOperators]]
+deps = ["DataStructures", "DataValues", "IteratorInterfaceExtensions", "TableShowUtils"]
+git-tree-sha1 = "911c64c204e7ecabfd1872eb93c49b4e7c701f02"
+uuid = "2aef5ad7-51ca-5a8f-8e88-e75cf067b44b"
+version = "0.9.3"
+
 [[deps.REPL]]
 deps = ["InteractiveUtils", "Markdown", "Sockets", "Unicode"]
 uuid = "3fa0cd96-eef1-5676-8a61-b3b8758bbffb"
@@ -387,6 +661,12 @@ uuid = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
 git-tree-sha1 = "45e428421666073eab6f2da5c9d310d99bb12f9b"
 uuid = "189a3867-3050-52da-a836-e630ba90ab69"
 version = "1.2.2"
+
+[[deps.Requires]]
+deps = ["UUIDs"]
+git-tree-sha1 = "838a3a4188e2ded87a4f9f184b4b0d78a1e91cb7"
+uuid = "ae029012-a4dd-5104-9daa-d747884805df"
+version = "1.3.0"
 
 [[deps.SHA]]
 uuid = "ea8e919c-243c-51af-8825-aaa63cd721ce"
@@ -458,11 +738,23 @@ deps = ["Dates"]
 uuid = "fa267f1f-6049-4f14-aa54-33bafae1ed76"
 version = "1.0.3"
 
+[[deps.TableShowUtils]]
+deps = ["DataValues", "Dates", "JSON", "Markdown", "Test"]
+git-tree-sha1 = "14c54e1e96431fb87f0d2f5983f090f1b9d06457"
+uuid = "5e66a065-1f0a-5976-b372-e0b8c017ca10"
+version = "0.2.5"
+
 [[deps.TableTraits]]
 deps = ["IteratorInterfaceExtensions"]
 git-tree-sha1 = "c06b2f539df1c6efa794486abfb6ed2022561a39"
 uuid = "3783bdb8-4a98-5b6b-af9a-565f29a5fe9c"
 version = "1.0.1"
+
+[[deps.TableTraitsUtils]]
+deps = ["DataValues", "IteratorInterfaceExtensions", "Missings", "TableTraits"]
+git-tree-sha1 = "78fecfe140d7abb480b53a44f3f85b6aa373c293"
+uuid = "382cd787-c1b6-5bf2-a167-d5b971a19bda"
+version = "1.0.2"
 
 [[deps.Tables]]
 deps = ["DataAPI", "DataValueInterfaces", "IteratorInterfaceExtensions", "LinearAlgebra", "OrderedCollections", "TableTraits", "Test"]
@@ -479,12 +771,29 @@ version = "1.10.0"
 deps = ["InteractiveUtils", "Logging", "Random", "Serialization"]
 uuid = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
 
+[[deps.TranscodingStreams]]
+deps = ["Random", "Test"]
+git-tree-sha1 = "9a6ae7ed916312b41236fcef7e0af564ef934769"
+uuid = "3bb67fe8-82b1-5028-8e26-92a6c54297fa"
+version = "0.9.13"
+
+[[deps.URIs]]
+git-tree-sha1 = "074f993b0ca030848b897beff716d93aca60f06a"
+uuid = "5c2747f8-b7ea-4ff2-ba2e-563bfd36b1d4"
+version = "1.4.2"
+
 [[deps.UUIDs]]
 deps = ["Random", "SHA"]
 uuid = "cf7118a7-6976-5b1a-9a39-7adc72f591a4"
 
 [[deps.Unicode]]
 uuid = "4ec0a83e-493e-50e2-b9ac-8f72acf5a8f5"
+
+[[deps.WeakRefStrings]]
+deps = ["DataAPI", "InlineStrings", "Parsers"]
+git-tree-sha1 = "b1be2855ed9ed8eac54e5caff2afcdb442d52c23"
+uuid = "ea10d353-3f73-51f8-a26c-33c1cb351aa5"
+version = "1.4.2"
 
 [[deps.Zlib_jll]]
 deps = ["Libdl"]
@@ -530,10 +839,31 @@ version = "2.3.9+0"
 # ╟─b8a615a9-ee9f-4df7-8856-0f94e9254096
 # ╠═f831873d-728d-48ad-8f1a-f9ed5fcdb763
 # ╠═acad636a-6515-4942-89fb-9d6b0b2be513
-# ╠═413e5c2d-f697-49f7-a1ea-e481c11905eb
+# ╟─413e5c2d-f697-49f7-a1ea-e481c11905eb
+# ╟─c3d7f254-efae-45b3-9eae-ae89d9e64fc6
 # ╟─0c328dbd-df17-453c-961a-c5ec446d34c6
 # ╠═cc188870-a483-4179-aed4-29bf71518ddf
 # ╠═21334d46-f828-48ec-84b0-a81133fb55a8
+# ╠═ec4fb85d-8fb1-47df-b811-966ceeba0b25
+# ╠═102dbb27-ee69-42ca-8549-714463d10597
+# ╟─7f58ae46-2531-41ba-a43b-456b93bb6c9e
+# ╟─5c09ff51-6046-4e1d-913f-c27364ced969
+# ╠═b2616e09-4396-491f-a37f-a6af4a79d4eb
+# ╠═1c8c6d32-e960-40d4-ba5b-447e1c6fa998
+# ╟─b5cb39cb-ec94-4349-8bc2-ff388fc623e5
+# ╟─4a790301-0db2-4370-85f1-d6eff91047b9
+# ╠═543e7024-4a8e-49d3-a568-b820c1aa98e4
+# ╟─34800bee-346b-49df-81fa-e30e763ce537
+# ╟─4587b7e0-7509-4534-9a05-b69dee4fd2d9
+# ╟─8e81d52e-d4c8-439a-8f82-b79d9a08e54b
+# ╟─078ae9f1-f29c-4171-8ec7-daacab7ef5f8
+# ╠═32e1a386-604a-467c-bec2-5f6bc8a26913
+# ╟─fa73f368-c318-4fb5-8a04-5ff4eab2e324
+# ╟─3bbcf312-c153-4d40-a99b-b997244402ab
+# ╠═d2c2eb57-f833-4041-9081-2197d8ef2802
+# ╠═aa07c21f-bcf6-4231-8947-819d9d8e2601
+# ╟─91a8c494-ec4f-4b6e-a08f-0f1c1ae04a8b
+# ╠═a1e8772c-abb2-490c-92f8-37bc553060d6
 # ╟─37cabedf-c062-40fc-bbd9-9a4ed4f460b3
 # ╠═42758b31-5a78-433d-8dd8-47bcd6986578
 # ╟─00000000-0000-0000-0000-000000000001
