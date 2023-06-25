@@ -156,8 +156,7 @@ function create_trade_table(conn_master, db_name::String, table_name::String)
 		try
 			DBInterface.execute(conn, 
 		                        "CREATE TABLE $table_name (
-								 Id INT IDENTITY,
-                                 Time CHAR(27),
+								 Time CHAR(27),
                                  Price FLOAT,
                                  Side VARCHAR(4),
                                  Size FLOAT,
@@ -177,7 +176,7 @@ function create_trade_table(conn_master, db_name::String, table_name::String)
 end
 
 # ╔═╡ 32e1a386-604a-467c-bec2-5f6bc8a26913
-create_trade_table(conn_master, "TradesDB", "ETH_EUR")
+#create_trade_table(conn_master, "TradesDB", "ETH_EUR")
 
 # ╔═╡ fa73f368-c318-4fb5-8a04-5ff4eab2e324
 md"
@@ -232,19 +231,110 @@ function add_to_trade_table(conn_master, db_name::String, table_name::String)
 
 end
 
-# ╔═╡ d2c2eb57-f833-4041-9081-2197d8ef2802
-#df_trades = show_latest_trades("BTC-EUR")
-
 # ╔═╡ aa07c21f-bcf6-4231-8947-819d9d8e2601
-add_to_trade_table(conn_master, "TradesDB", "BTC_EUR")
+add_to_trade_table(conn_master, "TradesDB", "ETH_EUR")
 
 # ╔═╡ 91a8c494-ec4f-4b6e-a08f-0f1c1ae04a8b
 md"
 #### Clean up table
 "
 
-# ╔═╡ a1e8772c-abb2-490c-92f8-37bc553060d6
+# ╔═╡ ff9a32d4-32bc-49e2-8124-acdef1ba7d20
+"""
+    remove_duplicate_rows(db_name::String, table_name::String)
 
+Clean up table by removing duplicate rows.
+"""
+function remove_duplicate_rows(db_name::String, table_name::String)
+
+	conn_db = connect_db(db_name)
+
+	# Remove duplicate rows using a common table expression (cte)
+	try
+		DBInterface.execute(conn_db, 
+		            "WITH cte AS (
+					SELECT 
+                          Time, 
+                          Price, 
+                          Side,
+					      Size,
+					      TradeId,
+        ROW_NUMBER() OVER (
+            PARTITION BY 
+                TradeId
+            ORDER BY 
+                TradeId
+					) row_num FROM $table_name ) 
+					DELETE FROM cte WHERE row_num > 1" )
+		
+	catch
+		error("Unable to delete rows!")
+	finally
+		DBInterface.close!(conn_db)	
+	end
+
+	return nothing	
+
+end
+
+# ╔═╡ e7223e58-671e-46ec-a598-c290c1e85e65
+md"
+#### Delete table
+"
+
+# ╔═╡ 8306edda-1a92-4890-8e54-1bb92bec595f
+"""
+    delete_table(db_name::String, table_name::String)
+
+Removes `table_name` from `db_name`.
+"""
+function delete_table(db_name::String, table_name::String)
+
+	conn_db = connect_db(db_name)
+
+	try
+		DBInterface.execute(conn_db, 
+			                "DROP TABLE $table_name")
+	catch
+		error("Unable to delete table $table_name")
+	finally
+		DBInterface.close!(conn_db)			
+	end
+
+	return nothing
+
+end
+
+# ╔═╡ 5c278f63-b614-43c6-ae13-3d8bea8044fa
+md"
+## Update and clean table
+"
+
+# ╔═╡ f8cc7064-7a14-4a90-a573-5570f008e08a
+function update_and_clean(db_name::String, table_name::String, cycles::Int64)
+
+	for i = 1:cycles
+		add_to_trade_table(conn_master, db_name, table_name)
+		remove_duplicate_rows(db_name, table_name)
+		sleep(300)
+	end
+
+end
+
+# ╔═╡ 33ab6e5d-b8f2-4320-8684-d58f69a46506
+md"
+## Verify contents
+"
+
+# ╔═╡ a1e8772c-abb2-490c-92f8-37bc553060d6
+conn_db = connect_db("TradesDB")
+
+# ╔═╡ b2032635-c85b-452d-b283-26ad64b847c8
+begin
+	df_trade = DBInterface.execute(conn_db, 
+			            "SELECT * FROM ETH_EUR") |> DataFrame
+	sort(df_trade, :TradeId, rev = true)
+end
 
 # ╔═╡ 37cabedf-c062-40fc-bbd9-9a4ed4f460b3
 md"
@@ -860,10 +950,16 @@ version = "2.3.9+0"
 # ╠═32e1a386-604a-467c-bec2-5f6bc8a26913
 # ╟─fa73f368-c318-4fb5-8a04-5ff4eab2e324
 # ╟─3bbcf312-c153-4d40-a99b-b997244402ab
-# ╠═d2c2eb57-f833-4041-9081-2197d8ef2802
 # ╠═aa07c21f-bcf6-4231-8947-819d9d8e2601
 # ╟─91a8c494-ec4f-4b6e-a08f-0f1c1ae04a8b
+# ╟─ff9a32d4-32bc-49e2-8124-acdef1ba7d20
+# ╟─e7223e58-671e-46ec-a598-c290c1e85e65
+# ╟─8306edda-1a92-4890-8e54-1bb92bec595f
+# ╟─5c278f63-b614-43c6-ae13-3d8bea8044fa
+# ╠═f8cc7064-7a14-4a90-a573-5570f008e08a
+# ╟─33ab6e5d-b8f2-4320-8684-d58f69a46506
 # ╠═a1e8772c-abb2-490c-92f8-37bc553060d6
+# ╠═b2032635-c85b-452d-b283-26ad64b847c8
 # ╟─37cabedf-c062-40fc-bbd9-9a4ed4f460b3
 # ╠═42758b31-5a78-433d-8dd8-47bcd6986578
 # ╟─00000000-0000-0000-0000-000000000001
