@@ -311,15 +311,31 @@ md"
 "
 
 # ╔═╡ f8cc7064-7a14-4a90-a573-5570f008e08a
-function update_and_clean(db_name::String, table_name::String, cycles::Int64)
+"""
+    update_and_clean(db_name::String, table_names::Vector{String}, cycles::Int64)
+"""
+function update_and_clean(db_name::String, 
+	                      table_names::Vector{String}, 
+	                      cycles::Int64)
 
 	for i = 1:cycles
-		add_to_trade_table(conn_master, db_name, table_name)
-		remove_duplicate_rows(db_name, table_name)
+		for table_name in table_names
+			add_to_trade_table(conn_master, db_name, table_name)
+		    remove_duplicate_rows(db_name, table_name)
+		end
 		sleep(300)
 	end
 
 end
+
+# ╔═╡ 5ce0e16a-6ee2-4841-9dbd-5f1ebe137817
+#"LINK-EUR" in show_all_products("EUR")
+
+# ╔═╡ 900df129-cc94-4f78-9070-f6ed6c692589
+table_names = ["BTC_EUR", "ETH_EUR", "SOL_EUR", "LINK_EUR", "LTC_EUR"]
+
+# ╔═╡ cb263600-1f6f-4a19-9da0-24bf7fb5eb41
+update_and_clean("TradesDB", table_names, 24)
 
 # ╔═╡ 33ab6e5d-b8f2-4320-8684-d58f69a46506
 md"
@@ -956,7 +972,10 @@ version = "2.3.9+0"
 # ╟─e7223e58-671e-46ec-a598-c290c1e85e65
 # ╟─8306edda-1a92-4890-8e54-1bb92bec595f
 # ╟─5c278f63-b614-43c6-ae13-3d8bea8044fa
-# ╠═f8cc7064-7a14-4a90-a573-5570f008e08a
+# ╟─f8cc7064-7a14-4a90-a573-5570f008e08a
+# ╠═5ce0e16a-6ee2-4841-9dbd-5f1ebe137817
+# ╠═900df129-cc94-4f78-9070-f6ed6c692589
+# ╠═cb263600-1f6f-4a19-9da0-24bf7fb5eb41
 # ╟─33ab6e5d-b8f2-4320-8684-d58f69a46506
 # ╠═a1e8772c-abb2-490c-92f8-37bc553060d6
 # ╠═b2032635-c85b-452d-b283-26ad64b847c8
