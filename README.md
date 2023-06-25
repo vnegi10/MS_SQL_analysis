@@ -11,6 +11,8 @@ Instructions for SQL Server 2022 are given [here.](https://learn.microsoft.com/e
 
 - #### Microsoft ODBC driver 17 for Linux
 Instructions are given [here.](https://learn.microsoft.com/en-us/sql/connect/odbc/linux-mac/installing-the-microsoft-odbc-driver-for-sql-server?view=sql-server-ver16&tabs=alpine18-install%2Cubuntu17-install%2Cdebian8-install%2Credhat7-13-install%2Crhel7-offline#17)
+I was unable to connect to the database using the newer driver 18, hence cannot recommend
+to use that one.
 
 - #### sqlcmd utility (optional)
 The sqlcmd utility lets you enter Transact-SQL statements, and is great to test if
