@@ -15,3 +15,15 @@ Instructions are given [here.](https://learn.microsoft.com/en-us/sql/connect/odb
 #### sqlcmd utility (optional)
 The sqlcmd utility lets you enter Transact-SQL statements, and is great to test if
 everything is working as expected. Follow instructions [here.](https://learn.microsoft.com/en-us/sql/linux/sql-server-linux-setup-tools?view=sql-server-linux-ver16&tabs=redhat-install%2Credhat-offline#install-tools-on-linux)
+
+## How to use?
+
+Install Pluto.jl (if not done already) by executing the following commands in your Julia REPL:
+
+    using Pkg
+    Pkg.add("Pluto")
+    using Pluto
+    Pluto.run() 
+
+Clone this repository and open **MS_SQL_notebook.jl** in your Pluto browser window.
+That's it! You are good to go.
