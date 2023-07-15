@@ -29,7 +29,7 @@ md"
 #ODBC.adddriver("ODBC Driver 18 for SQL Server", "/opt/microsoft/msodbcsql18/lib64/libmsodbcsql-18.2.so.2.1")
 
 # ╔═╡ 770a02bc-f496-493c-ac1f-52d98e1bea86
-#ODBC.removedriver("msodbcsql18")
+#ODBC.removedriver("ODBC Driver 18 for SQL Server")
 
 # ╔═╡ b8a615a9-ee9f-4df7-8856-0f94e9254096
 md"
@@ -48,6 +48,13 @@ conn = ODBC.Connection("Driver={ODBC Driver 17 for SQL Server};
 	                        DATABASE=TestDB;
 	                        UID=SA;
 	                        PWD=$(pass)")
+
+# ╔═╡ f156afa2-eb8d-4b93-8485-1ee5d795ead9
+conn_fruit = ODBC.Connection("Driver={ODBC Driver 17 for SQL Server};
+	                                  SERVER=192.168.2.8,1433;
+	                                  DATABASE=FruitsDB;
+	                                  UID=SA;
+	                                  PWD=$(pass)")
 
 # ╔═╡ c3d7f254-efae-45b3-9eae-ae89d9e64fc6
 conn_master = ODBC.Connection("Driver={ODBC Driver 17 for SQL Server};
@@ -119,7 +126,7 @@ function create_db(conn, db_name::String)
 end
 
 # ╔═╡ 543e7024-4a8e-49d3-a568-b820c1aa98e4
-create_db(conn_master, "TradesDB")
+create_db(conn_master, "FruitsDB")
 
 # ╔═╡ 34800bee-346b-49df-81fa-e30e763ce537
 md"
@@ -175,8 +182,42 @@ function create_trade_table(conn_master, db_name::String, table_name::String)
 
 end
 
+# ╔═╡ f9f01c9c-6ad8-47de-ad91-0c708e90b76b
+function create_fruit_table(conn_master, db_name::String, table_name::String)
+
+	create_db(conn_master, db_name)
+
+	conn = connect_db(db_name)
+
+	df_tables = DBInterface.execute(conn, 
+		                    "SELECT * FROM information_schema.tables") |> DataFrame
+
+	if table_name ∉ df_tables[!, :TABLE_NAME]
+		try
+			DBInterface.execute(conn, 
+		                        "CREATE TABLE $table_name (
+								 Name VARCHAR(50),
+								 Price FLOAT,
+                                 Origin VARCHAR(50),
+                                 );")
+			
+		catch e
+			error("Unable to create table $table_name")
+		end
+
+	else
+		@info("Table $table_name already exists!")
+	end	
+
+	return conn
+
+end
+
 # ╔═╡ 32e1a386-604a-467c-bec2-5f6bc8a26913
 #create_trade_table(conn_master, "TradesDB", "ETH_EUR")
+
+# ╔═╡ 574d52de-b097-4e32-b666-f657589ef0e8
+#create_fruit_table(conn_master, "FruitsDB", "Price_and_Origin")
 
 # ╔═╡ fa73f368-c318-4fb5-8a04-5ff4eab2e324
 md"
@@ -234,6 +275,64 @@ end
 # ╔═╡ aa07c21f-bcf6-4231-8947-819d9d8e2601
 add_to_trade_table(conn_master, "TradesDB", "ETH_EUR")
 
+# ╔═╡ c3c40a93-2049-479b-b5f6-f6ec7503a5f2
+#df_trades = show_latest_trades("ETH-EUR")
+
+# ╔═╡ e4ce0bd7-81f6-446d-85a8-1494bfeeee12
+function add_to_fruit_table(conn_master, 
+	                        db_name::String, 
+	                        table_name::String,
+                            df_input::DataFrame)
+
+	conn = create_fruit_table(conn_master, db_name, table_name)
+
+	stmt = try
+		 DBInterface.prepare(conn, 
+		                     "INSERT INTO $(table_name) VALUES(?, ?, ?)")
+	catch 
+		error("Unable to prepare statement")
+	end
+
+	try
+		DBInterface.executemany(stmt, 
+		                       (df_input[!, 1], 
+							    df_input[!, 2],
+						        df_input[!, 3],
+						        )
+	                            )
+	catch
+		error("Unable to execute multiple statements")
+	finally
+		DBInterface.close!(stmt)
+		DBInterface.close!(conn)		
+	end
+
+	return nothing	
+
+end
+
+# ╔═╡ 8a8217ed-3610-4dc2-a940-a862bebdc112
+df_fruits = DataFrame("Name" => ["Mango", "Banana", "Papaya", "Ananas", "Strawberry"],
+                      "Price" => [100, 10.4, 42, 23, 67],
+                      "Origin" => ["India", "Africa", "Mexico", "Paraguay", "France"])
+
+# ╔═╡ df70144e-175e-4eea-bcb9-2e5a42cec031
+add_to_fruit_table(conn_master, "FruitsDB", "Price_and_Origin", df_fruits)
+
+# ╔═╡ aab9fdff-fe4b-4751-80ef-2d5bba39b30c
+#df_from_db = DBInterface.execute(conn_fruit, "SELECT * FROM Price_and_Origin ") |> DataFrame
+
+# ╔═╡ d01d51fa-18e0-4e0b-b7ad-3605327559a0
+df_fruits_1 = DataFrame("Name" => ["Lichi", "Pear"],
+                        "Price" => [200, 87.5],
+                        "Origin" => ["China", "Caucasus"])
+
+# ╔═╡ 1ef26323-0436-4dbc-a36b-c1233adcc091
+add_to_fruit_table(conn_master, "FruitsDB", "Price_and_Origin", df_fruits_1)
+
+# ╔═╡ 1cbe9a96-47dc-4ece-b56a-05865ba5023a
+
+
 # ╔═╡ 91a8c494-ec4f-4b6e-a08f-0f1c1ae04a8b
 md"
 #### Clean up table
@@ -277,6 +376,74 @@ function remove_duplicate_rows(db_name::String, table_name::String)
 
 end
 
+# ╔═╡ 5f44a50a-be03-46cb-bfc9-4b14379fe423
+function remove_duplicate_fruits(db_name::String, table_name::String)
+
+	conn_db = connect_db(db_name)
+
+	# Remove duplicate rows using a common table expression (cte)
+	try
+		DBInterface.execute(conn_db, 
+		            "WITH cte AS (
+					SELECT 
+                          Name, 
+                          Price, 
+                          Origin,
+					ROW_NUMBER() OVER (
+                    PARTITION BY 
+                        Name
+                    ORDER BY 
+                        Name
+					) row_num FROM $table_name ) 
+					DELETE FROM cte WHERE row_num > 1" )
+		
+	catch
+		error("Unable to delete rows!")
+	finally
+		DBInterface.close!(conn_db)	
+	end
+
+	return nothing	
+
+end
+
+# ╔═╡ 35ff646e-cdde-4928-b4ca-141341cfce45
+remove_duplicate_fruits("FruitsDB", "Price_and_Origin")
+
+# ╔═╡ 9a75440c-6233-4e95-a098-124b8f69c3d0
+md"
+#### Delete record
+"
+
+# ╔═╡ 9e26cfe7-88e7-4c74-b68a-af40a535af2e
+"""
+    delete_rows(db_name::String, table_name::String, price::Float64)
+
+Removes rows from `table_name` within `db_name`.
+"""
+function delete_rows(db_name::String, table_name::String, price::Float64)
+
+	conn_db = connect_db(db_name)
+
+	try
+		DBInterface.execute(conn_db, 
+			                "DELETE FROM $table_name WHERE Price > $price")
+	catch
+		error("Unable to delete from $table_name")
+	finally
+		DBInterface.close!(conn_db)			
+	end
+
+	return nothing
+
+end
+
+# ╔═╡ 3b1385b0-c189-4e39-9f91-fe538a72c806
+delete_rows("FruitsDB", "Price_and_Origin", 95.0)
+
+# ╔═╡ 6664cd05-619a-42f0-baf4-ba9ebeb43d9f
+df_from_db = DBInterface.execute(conn_fruit, "SELECT * FROM Price_and_Origin ") |> DataFrame
+
 # ╔═╡ e7223e58-671e-46ec-a598-c290c1e85e65
 md"
 #### Delete table
@@ -312,20 +479,37 @@ md"
 
 # ╔═╡ f8cc7064-7a14-4a90-a573-5570f008e08a
 """
-    update_and_clean(db_name::String, table_names::Vector{String}, cycles::Int64)
+    update_and_clean_cycles(db_name::String, 
+                            table_names::Vector{String}, 
+                            cycles::Int64)
 """
-function update_and_clean(db_name::String, 
-	                      table_names::Vector{String}, 
-	                      cycles::Int64)
+function update_and_clean_cycles(db_name::String, 
+	                             table_names::Vector{String}, 
+	                             cycles::Int64)
 
 	for i = 1:cycles
 		for table_name in table_names
 			add_to_trade_table(conn_master, db_name, table_name)
 		    remove_duplicate_rows(db_name, table_name)
 		end
-		sleep(300)
+		sleep(30)
 	end
 
+	return nothing
+
+end
+
+# ╔═╡ 9f37b7fa-5342-41d3-a5bf-5e8c6e6a1503
+"""
+    update_and_clean(db_name::String, table_names::String)
+"""
+function update_and_clean(db_name::String, 
+	                      table_name::String)
+
+	add_to_trade_table(conn_master, db_name, table_name)
+	remove_duplicate_rows(db_name, table_name)
+
+	return nothing
 end
 
 # ╔═╡ 5ce0e16a-6ee2-4841-9dbd-5f1ebe137817
@@ -335,7 +519,10 @@ end
 table_names = ["BTC_EUR", "ETH_EUR", "SOL_EUR", "LINK_EUR", "LTC_EUR"]
 
 # ╔═╡ cb263600-1f6f-4a19-9da0-24bf7fb5eb41
-update_and_clean("TradesDB", table_names, 24)
+#update_and_clean_cycles("TradesDB", table_names, 2)
+
+# ╔═╡ 85efe6c3-4714-4384-a191-df38722fdcda
+#update_and_clean("TradesDB", "LTC_EUR")
 
 # ╔═╡ 33ab6e5d-b8f2-4320-8684-d58f69a46506
 md"
@@ -348,7 +535,7 @@ conn_db = connect_db("TradesDB")
 # ╔═╡ b2032635-c85b-452d-b283-26ad64b847c8
 begin
 	df_trade = DBInterface.execute(conn_db, 
-			            "SELECT * FROM ETH_EUR") |> DataFrame
+			            "SELECT * FROM BTC_EUR") |> DataFrame
 	sort(df_trade, :TradeId, rev = true)
 end
 
@@ -359,6 +546,12 @@ md"
 
 # ╔═╡ 42758b31-5a78-433d-8dd8-47bcd6986578
 #DBInterface.close!(conn_1)
+
+# ╔═╡ 9f45d805-cebd-40cd-98f9-ae6129e28ea6
+
+
+# ╔═╡ 5706429a-196e-45cc-95b6-7940c112fbe7
+
 
 # ╔═╡ 00000000-0000-0000-0000-000000000001
 PLUTO_PROJECT_TOML_CONTENTS = """
@@ -945,8 +1138,9 @@ version = "2.3.9+0"
 # ╟─b8a615a9-ee9f-4df7-8856-0f94e9254096
 # ╠═f831873d-728d-48ad-8f1a-f9ed5fcdb763
 # ╠═acad636a-6515-4942-89fb-9d6b0b2be513
-# ╟─413e5c2d-f697-49f7-a1ea-e481c11905eb
-# ╟─c3d7f254-efae-45b3-9eae-ae89d9e64fc6
+# ╠═413e5c2d-f697-49f7-a1ea-e481c11905eb
+# ╠═f156afa2-eb8d-4b93-8485-1ee5d795ead9
+# ╠═c3d7f254-efae-45b3-9eae-ae89d9e64fc6
 # ╟─0c328dbd-df17-453c-961a-c5ec446d34c6
 # ╠═cc188870-a483-4179-aed4-29bf71518ddf
 # ╠═21334d46-f828-48ec-84b0-a81133fb55a8
@@ -963,23 +1157,43 @@ version = "2.3.9+0"
 # ╟─4587b7e0-7509-4534-9a05-b69dee4fd2d9
 # ╟─8e81d52e-d4c8-439a-8f82-b79d9a08e54b
 # ╟─078ae9f1-f29c-4171-8ec7-daacab7ef5f8
+# ╟─f9f01c9c-6ad8-47de-ad91-0c708e90b76b
 # ╠═32e1a386-604a-467c-bec2-5f6bc8a26913
+# ╠═574d52de-b097-4e32-b666-f657589ef0e8
 # ╟─fa73f368-c318-4fb5-8a04-5ff4eab2e324
 # ╟─3bbcf312-c153-4d40-a99b-b997244402ab
 # ╠═aa07c21f-bcf6-4231-8947-819d9d8e2601
+# ╠═c3c40a93-2049-479b-b5f6-f6ec7503a5f2
+# ╟─e4ce0bd7-81f6-446d-85a8-1494bfeeee12
+# ╠═8a8217ed-3610-4dc2-a940-a862bebdc112
+# ╠═df70144e-175e-4eea-bcb9-2e5a42cec031
+# ╠═aab9fdff-fe4b-4751-80ef-2d5bba39b30c
+# ╠═d01d51fa-18e0-4e0b-b7ad-3605327559a0
+# ╠═1ef26323-0436-4dbc-a36b-c1233adcc091
+# ╠═1cbe9a96-47dc-4ece-b56a-05865ba5023a
 # ╟─91a8c494-ec4f-4b6e-a08f-0f1c1ae04a8b
 # ╟─ff9a32d4-32bc-49e2-8124-acdef1ba7d20
+# ╟─5f44a50a-be03-46cb-bfc9-4b14379fe423
+# ╠═35ff646e-cdde-4928-b4ca-141341cfce45
+# ╟─9a75440c-6233-4e95-a098-124b8f69c3d0
+# ╟─9e26cfe7-88e7-4c74-b68a-af40a535af2e
+# ╠═3b1385b0-c189-4e39-9f91-fe538a72c806
+# ╠═6664cd05-619a-42f0-baf4-ba9ebeb43d9f
 # ╟─e7223e58-671e-46ec-a598-c290c1e85e65
 # ╟─8306edda-1a92-4890-8e54-1bb92bec595f
 # ╟─5c278f63-b614-43c6-ae13-3d8bea8044fa
 # ╟─f8cc7064-7a14-4a90-a573-5570f008e08a
+# ╟─9f37b7fa-5342-41d3-a5bf-5e8c6e6a1503
 # ╠═5ce0e16a-6ee2-4841-9dbd-5f1ebe137817
 # ╠═900df129-cc94-4f78-9070-f6ed6c692589
 # ╠═cb263600-1f6f-4a19-9da0-24bf7fb5eb41
+# ╠═85efe6c3-4714-4384-a191-df38722fdcda
 # ╟─33ab6e5d-b8f2-4320-8684-d58f69a46506
 # ╠═a1e8772c-abb2-490c-92f8-37bc553060d6
 # ╠═b2032635-c85b-452d-b283-26ad64b847c8
 # ╟─37cabedf-c062-40fc-bbd9-9a4ed4f460b3
 # ╠═42758b31-5a78-433d-8dd8-47bcd6986578
+# ╠═9f45d805-cebd-40cd-98f9-ae6129e28ea6
+# ╠═5706429a-196e-45cc-95b6-7940c112fbe7
 # ╟─00000000-0000-0000-0000-000000000001
 # ╟─00000000-0000-0000-0000-000000000002
