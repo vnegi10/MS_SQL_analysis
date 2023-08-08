@@ -439,7 +439,7 @@ function delete_rows(db_name::String, table_name::String, price::Float64)
 end
 
 # ╔═╡ 3b1385b0-c189-4e39-9f91-fe538a72c806
-delete_rows("FruitsDB", "Price_and_Origin", 95.0)
+#delete_rows("FruitsDB", "Price_and_Origin", 95.0)
 
 # ╔═╡ 6664cd05-619a-42f0-baf4-ba9ebeb43d9f
 df_from_db = DBInterface.execute(conn_fruit, "SELECT * FROM Price_and_Origin ") |> DataFrame
